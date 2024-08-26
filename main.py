@@ -1,91 +1,56 @@
 from datetime import datetime, timedelta
-import imaplib
 import email
-from email.header import decode_header
-
-from dotenv import load_dotenv
+from contextlib import closing
 import os
-
-load_dotenv()
-
-USERNAME = os.getenv("USERNAME")
-PASSWORD = os.getenv("PASSWORD")
-IMAP_SERVER = os.getenv("IMAP_SERVER")
-IMAP_PORT = os.getenv("IMAP_PORT")
+from utils.imap import decode_header_field, decode_folder_name, imap_login
 
 # Göz ardı edilecek klasörler
 IGNORED_FOLDERS = os.getenv("IGNORED_FOLDERS").split(",")
- 
+
+def check_env_variables():
+    required_vars = ["USERNAME", "PASSWORD", "IMAP_SERVER", "IMAP_PORT", "IGNORED_FOLDERS"]
+    missing_vars = [var for var in required_vars if not os.getenv(var)]
+    if missing_vars:
+        raise ValueError(f"Eksik çevresel değişkenler: {', '.join(missing_vars)}")
+
 def get_folders(mail):
-    mail_folders = []
-
-    # Tüm klasörleri al
     _, folders = mail.list()
-    
-    for folder in folders:
-        # Klasör adını al ve decode et
-        parts = folder.decode().split('"')
-        folder_name = parts[-2].strip() if len(parts) > 3 else parts[-1].strip()
+    return [decode_folder_name(folder) for folder in folders 
+            if not any(ignored in decode_folder_name(folder) for ignored in IGNORED_FOLDERS)]
 
-        # Göz ardı edilecek klasörleri kontrol et
-        if not any(ignored in folder_name for ignored in IGNORED_FOLDERS):
-            mail_folders.append(folder_name)
+def process_email(mail, num):
+    _, msg = mail.fetch(num, "(RFC822)")
+    email_message = email.message_from_bytes(msg[0][1])
     
-    return mail_folders
+    subject = decode_header_field(email_message["Subject"])
+    from_ = decode_header_field(email_message.get("From"))
+    date = email_message["Date"]
+    
+    print(f"Konu: {subject}")
+    print(f"Gönderen: {from_}")
+    print(f"Tarih: {date}")
+    print("-" * 30)
+
+def process_folder(mail, folder_name):
+    mail.select(f'"{folder_name}"')
+    yesterday = (datetime.now() - timedelta(days=1)).strftime("%d-%b-%Y")
+    _, message_numbers = mail.search(None, f'(UNSEEN) (ON "{yesterday}")')
+    
+    if message_numbers[0]:
+        print(f"\nKlasör: {folder_name}")
+        print("=" * 30)
+        for num in message_numbers[0].split():
+            process_email(mail, num)
 
 def get_unread_emails():
-    # IMAP sunucusuna bağlan
-    mail = imaplib.IMAP4_SSL(IMAP_SERVER, IMAP_PORT)
-    
-    try:
-        # Giriş yap
-        mail.login(USERNAME, PASSWORD)
-
-        folders = get_folders(mail)
-
-        # Dünün tarihini al
-        yesterday = (datetime.now() - timedelta(days=1)).strftime("%d-%b-%Y")
+    with closing(imap_login()) as mail:
+        if not mail:
+            return
         
+        folders = get_folders(mail)
         for folder_name in folders:
-            folder_name = '"' + folder_name.strip() + '"'  # Klasör adını tırnak işaretleri içine alın ve boşlukları kırpın
-
-            mail.select(folder_name)
-            # Dün gönderilen ve okunmamış mailleri ara
-            _, message_numbers = mail.search(None, f'(UNSEEN) (ON "{yesterday}")')
-            
-            if message_numbers[0]:
-                print(f"\nKlasör: {folder_name}")
-                print("=" * 30)
-            
-            for num in message_numbers[0].split():
-                # Maili getir
-                _, msg = mail.fetch(num, "(RFC822)")
-                
-                # Mail içeriğini parse et
-                email_body = msg[0][1]
-                email_message = email.message_from_bytes(email_body)
-                
-                # Konu, gönderen ve tarihi al
-                subject, encoding = decode_header(email_message["Subject"])[0]
-                if isinstance(subject, bytes):
-                    subject = subject.decode(encoding or "utf-8")
-                from_, encoding = decode_header(email_message.get("From"))[0]
-                if isinstance(from_, bytes):
-                    from_ = from_.decode(encoding or "utf-8")
-                date = email_message["Date"]
-                
-                print(f"Konu: {subject}")
-                print(f"Gönderen: {from_}")
-                print(f"Tarih: {date}")
-                print("-" * 30)
-
-    except imaplib.IMAP4.error as e:
-        print(f"Bir hata oluştu: {e}")
-    
-    finally:
-        # Bağlantıyı kapat
-        mail.logout()
-   
+            process_folder(mail, folder_name)
 
 if __name__ == "__main__":
+    check_env_variables()
     get_unread_emails()
