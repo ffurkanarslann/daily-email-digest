@@ -37,89 +37,54 @@ def get_unread_emails():
     # IMAP sunucusuna bağlan
     mail = imaplib.IMAP4_SSL(IMAP_SERVER, IMAP_PORT)
     
-    # try:
+    try:
         # Giriş yap
-    mail.login(USERNAME, PASSWORD)
+        mail.login(USERNAME, PASSWORD)
 
-    folders = get_folders(mail)
+        folders = get_folders(mail)
 
-    # Dünün tarihini al
-    yesterday = (datetime.now() - timedelta(days=1)).strftime("%d-%b-%Y")
+        # Dünün tarihini al
+        yesterday = (datetime.now() - timedelta(days=1)).strftime("%d-%b-%Y")
+        
+        for folder_name in folders:
+            folder_name = '"' + folder_name.strip() + '"'  # Klasör adını tırnak işaretleri içine alın ve boşlukları kırpın
+
+            mail.select(folder_name)
+            # Dün gönderilen ve okunmamış mailleri ara
+            _, message_numbers = mail.search(None, f'(UNSEEN) (ON "{yesterday}")')
+            
+            if message_numbers[0]:
+                print(f"\nKlasör: {folder_name}")
+                print("=" * 30)
+            
+            for num in message_numbers[0].split():
+                # Maili getir
+                _, msg = mail.fetch(num, "(RFC822)")
+                
+                # Mail içeriğini parse et
+                email_body = msg[0][1]
+                email_message = email.message_from_bytes(email_body)
+                
+                # Konu, gönderen ve tarihi al
+                subject, encoding = decode_header(email_message["Subject"])[0]
+                if isinstance(subject, bytes):
+                    subject = subject.decode(encoding or "utf-8")
+                from_, encoding = decode_header(email_message.get("From"))[0]
+                if isinstance(from_, bytes):
+                    from_ = from_.decode(encoding or "utf-8")
+                date = email_message["Date"]
+                
+                print(f"Konu: {subject}")
+                print(f"Gönderen: {from_}")
+                print(f"Tarih: {date}")
+                print("-" * 30)
+
+    except imaplib.IMAP4.error as e:
+        print(f"Bir hata oluştu: {e}")
     
-    for folder_name in folders:
-        folder_name = '"' + folder_name.strip() + '"'  # Klasör adını tırnak işaretleri içine alın ve boşlukları kırpın
-
-        mail.select(folder_name)
-        # Dün gönderilen ve okunmamış mailleri ara
-        _, message_numbers = mail.search(None, f'(UNSEEN) (ON "{yesterday}")')
-        
-        if message_numbers[0]:
-            print(f"\nKlasör: {folder_name}")
-            print("=" * 30)
-        
-        for num in message_numbers[0].split():
-            # Maili getir
-            _, msg = mail.fetch(num, "(RFC822)")
-            
-            # Mail içeriğini parse et
-            email_body = msg[0][1]
-            email_message = email.message_from_bytes(email_body)
-            
-            # Konu, gönderen ve tarihi al
-            subject, encoding = decode_header(email_message["Subject"])[0]
-            if isinstance(subject, bytes):
-                subject = subject.decode(encoding or "utf-8")
-            from_, encoding = decode_header(email_message.get("From"))[0]
-            if isinstance(from_, bytes):
-                from_ = from_.decode(encoding or "utf-8")
-            date = email_message["Date"]
-            
-            print(f"Konu: {subject}")
-            print(f"Gönderen: {from_}")
-            print(f"Tarih: {date}")
-            print("-" * 30)
-
-    # except imaplib.IMAP4.error as e:
-    #     print(f"Bir hata oluştu: {e}")
-    
-    # finally:
-    #     # Bağlantıyı kapat
-    #     # mail.close()
-    mail.logout()
-        
-         # Gelen kutusu seç
-            # mail.select("INBOX")
-
-            # # Okunmamış mailleri ara
-            # _, message_numbers = mail.search(None, "UNSEEN")
-
-            # # Dünün tarihini al
-            # yesterday = (datetime.now() - timedelta(days=1)).strftime("%d-%b-%Y")
-
-            # # Dün gönderilen mailleri ara
-            # _, message_numbers = mail.search(None, f'(ON "{yesterday}")')
-            
-            # for num in message_numbers[0].split():
-            #     # Maili getir
-            #     _, msg = mail.fetch(num, "(RFC822)")
-                
-            #     # Mail içeriğini parse et
-            #     email_body = msg[0][1]
-            #     email_message = email.message_from_bytes(email_body)
-                
-            #     # Konu ve göndereni al
-            #     subject, encoding = decode_header(email_message["Subject"])[0]
-            #     if isinstance(subject, bytes):
-            #         subject = subject.decode(encoding or "utf-8")
-            #     from_, encoding = decode_header(email_message.get("From"))[0]
-            #     if isinstance(from_, bytes):
-            #         from_ = from_.decode(encoding or "utf-8")
-            #     date = email_message["Date"]
-                
-            #     print(f"Konu: {subject}")
-            #     print(f"Gönderen: {from_}")
-            #     print(f"Tarih: {date}")
-            #     print("-" * 30)
+    finally:
+        # Bağlantıyı kapat
+        mail.logout()
    
 
 if __name__ == "__main__":
